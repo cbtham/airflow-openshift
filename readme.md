@@ -28,6 +28,15 @@ Then run
 helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
 ```
 
+### Post deploy
+Comment out this 3 line for statefulset, airflow-postgresql
+```yaml
+   # RunAsUser: 1001
+   # scccompProfile:
+   #     type: RuntimeDefault
+```
+>Note: Without this it will not run.
+
 ## WIP Preload DAG on startup with S3 Object store
 
 Option 1: Side car mount - s3-sync
