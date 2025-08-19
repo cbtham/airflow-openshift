@@ -1,3 +1,11 @@
+# Deploys latest Airflow on Openshift
+
+## Add Helm Repo
+```shell
+helm repo add apache-airflow https://airflow.apache.org
+```
+
+## Deployment
 Run these before deploy,
 
 ```shell
