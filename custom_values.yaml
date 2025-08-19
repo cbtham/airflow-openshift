@@ -1,0 +1,15 @@
+airflow:
+  executor: CeleryExecutor
+  config:
+    AIRFLOW__CORE__FERNET_KEY: "YOUR_KEY_HERE"  # Replace with your actual
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+  dags:
+    persistence:
+      enabled: true
+  logs:
+    persistence:
+      enabled: true
+  scheduler:
+    replicas: 1
+  webserver:
+    replicas: 1
