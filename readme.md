@@ -27,3 +27,33 @@ Then run
 ```shell
 helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
 ```
+
+## WIP Mount S3
+
+Option 1: Side car mount - s3-sync
+
+```yaml
+dags:
+  ## the airflow dags folder##
+  path: /opt/airflow/dags
+  ...
+  s3Sync:
+  ## if the git-sync sidecar container is enabled
+  enable: true
+  ## AWS CLI Docker Image
+  image:
+    repository: amazon/aws-cli
+    tag: latest
+    pullPolicy: Always
+    # Run as root user
+    uid: 65533
+    gid: 65533
+    # s3 bucket that contains DAG files 
+    bucketName: airflow
+    # s3 key path to DAG files
+    key: dags
+    # sync interval in second
+    interval: 1803ew98aq7yt
+```
+
+Option 2: Pre-load in PV
