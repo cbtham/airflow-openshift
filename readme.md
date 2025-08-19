@@ -28,7 +28,7 @@ Then run
 helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
 ```
 
-## WIP Mount S3
+## WIP Preload DAG on startup with S3 Object store
 
 Option 1: Side car mount - s3-sync
 
