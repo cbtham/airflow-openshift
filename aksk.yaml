@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-ak-sk
+  namespace: airflow
+data:
+  access-key: FILL_YOUR_S3_AK # ENCODED Access Key Id
+  secret-key: FILL_YOUR_S3_SK # ENCODED Secret Access Key
+  
+type: Opaque
