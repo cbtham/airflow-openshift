@@ -4,43 +4,47 @@ This guide deploys Airflow on OpenShift. Jump to the [Preload DAG on startup wit
 
 ![Airflow](img/airflow.png)
 
-## Add Airflow Helm Repo
-```shell
-helm repo add apache-airflow https://airflow.apache.org
-```
+1. Create new project
+    ```shell
+    oc new project airflow
+    oc project airflow
+    ```
+1. Add Helm Repo
+    ```shell
+    helm repo add apache-airflow https://airflow.apache.org
+    ```
 
-## Deployment
+1. Run these before deploy, or use the [shell script](./airflow_pre.sh)
 
-Create a new or point to your namespace.
-```shell
-oc new project airflow
-oc project airflow
-```
+    ```shell
+    oc adm policy add-scc-to-user anyuid -z airflow-api-server
+    oc adm policy add-scc-to-user anyuid -z airflow-create-user-job
+    oc adm policy add-scc-to-user anyuid -z airflow-dag-processor
+    oc adm policy add-scc-to-user anyuid -z airflow-migrate-database-job
+    oc adm policy add-scc-to-user anyuid -z airflow-redis
+    oc adm policy add-scc-to-user anyuid -z airflow-scheduler
+    oc adm policy add-scc-to-user anyuid -z airflow-statsd
+    oc adm policy add-scc-to-user anyuid -z airflow-triggerer
+    oc adm policy add-scc-to-user anyuid -z airflow-worker
+    oc adm policy add-scc-to-user anyuid -z airflow-webserver
+    oc adm policy add-scc-to-user anyuid -z default
+    ```
+    Then run
 
-Run these before deploy, or use the [shell script](./airflow_pre.sh)
-
-```shell
-oc adm policy add-scc-to-user anyuid -z airflow-api-server
-oc adm policy add-scc-to-user anyuid -z airflow-create-user-job
-oc adm policy add-scc-to-user anyuid -z airflow-dag-processor
-oc adm policy add-scc-to-user anyuid -z airflow-migrate-database-job
-oc adm policy add-scc-to-user anyuid -z airflow-redis
-oc adm policy add-scc-to-user anyuid -z airflow-scheduler
-oc adm policy add-scc-to-user anyuid -z airflow-statsd
-oc adm policy add-scc-to-user anyuid -z airflow-triggerer
-oc adm policy add-scc-to-user anyuid -z airflow-worker
-oc adm policy add-scc-to-user anyuid -z airflow-webserver
-oc adm policy add-scc-to-user anyuid -z default
-```
-Then run
-
-```shell
-helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
-```
+    ```shell
+    helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
+    ```
 
 ## Preload DAG on startup with S3 Object store
+Using S3 object store to keep dags is **NOT RECOMMENDED**. Best practice is to use Git-sync as it gives you version control and would work out of the box. Refer official docs https://github.com/airflow-helm/charts/blob/main/charts/airflow/docs/faq/dags/load-dag-definitions.md for more information. 
+
+Should you have requirement to enable this, read on.
+
+Use a sidecar container to sync the dags to PV and mount/load into opt/airflow/dags.
+Optionally, use the sidecar container to sync the dags from pv to airflow in an interval.
 
 ### Option 1: Side car mount - s3-sync
+
 One time sync only. This is achieved via sidecar mounted on apiServer. Only apiServer will work for some reason even though the helm chart supports others.
 
 ```shell
@@ -89,7 +93,10 @@ and
 ```shell
 helm install airflow apache-airflow/airflow -f airflow_values_v2-2.yaml --namespace airflow
 ```
-Post deployment, patch the scheduler, dag-processor and worker so they read from the PVC. This is a one time operation.
+Post deployment, patch the scheduler, dag-processor and worker so they read from the PVC.
+Manual patching is required in order for ***Scheduler, DAG Processor, and Workers*** to mount the EFS volume.
+
+* This is a one-time operation after deployment
 
 Scheduler
 ```shell
@@ -105,3 +112,11 @@ Worker
 ```shell
 oc patch statefulset airflow-worker -n airflow --type=merge -p='{"spec":{"template":{"spec":{"containers":[{"name":"worker","volumeMounts":[{"name":"dags","mountPath":"/opt/airflow/dags"}]}],"volumes":[{"name":"dags","persistentVolumeClaim":{"claimName":"airflow-efs-dags"}}]}}}}'
 ```
+
+# Knowledge Base
+Airflow requires the volume to be **RWX - ReadWriteMany**. If your ROSA does not comes with EFS drivers, proceed below to install. In ARO, that would be Azure Files.
+ 
+Enabling the AWS EFS CSI Driver Operator on ROSA
+https://cloud.redhat.com/experts/rosa/aws-efs/
+
+To deploy, helm install with airflow-minio-yaml values. Ensure to to create the pvc, aksk secret first.
