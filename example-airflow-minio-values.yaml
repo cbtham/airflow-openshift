@@ -57,7 +57,7 @@ apiServer:
           mkdir -p /opt/airflow/dags
           aws s3 sync \
             s3://${AWS_BUCKET}/${S3_PREFIX} ${AIRFLOW_HOME}/dags \
-            --endpoint-url https://nbg1.your-objectstorage.com \
+            --endpoint-url YOUR_MINIO_URL \
             --no-verify-ssl \
             --delete
           chmod -R 775 /opt/airflow/dags
@@ -70,8 +70,7 @@ apiServer:
             echo "[$(date)] Syncing DAGs from S3..."
             aws s3 sync \
               s3://${AWS_BUCKET}/${S3_PREFIX} ${AIRFLOW_HOME}/dags \
-              --endpoint-url https://nbg1.your-objectstorage.com \
-              --no-verify-ssl \
+              --endpoint-url YOUR_MINIO_URL \
               --delete
             chmod -R 775 /opt/airflow/dags
             echo "[$(date)] Sync completed. Files in /opt/airflow/dags:"
