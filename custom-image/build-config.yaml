@@ -1,0 +1,44 @@
+apiVersion: image.openshift.io/v1
+kind: ImageStream
+metadata:
+  name: airflow-openshift
+  namespace: airflow-redhat
+spec:
+  lookupPolicy:
+    local: false
+---
+apiVersion: build.openshift.io/v1
+kind: BuildConfig
+metadata:
+  name: airflow-openshift
+  namespace: airflow-redhat
+spec:
+  output:
+    to:
+      kind: ImageStreamTag
+      name: 'airflow-openshift:3.0.2-custom'
+  source:
+    type: Dockerfile
+    dockerfile: |
+      # Custom Airflow image with CNCF Kubernetes provider
+      # Based on the latest official Apache Airflow image
+      FROM apache/airflow:3.0.2
+
+      # Install the CNCF Kubernetes provider package and FAB provider
+      # Note: No need to switch users as the base image already uses airflow user
+      # This is OpenShift compatible as it doesn't require root privileges
+      RUN pip install --no-cache-dir apache-airflow-providers-cncf-kubernetes==10.8.1
+
+      # Verify the installation
+      RUN pip show apache-airflow-providers-cncf-kubernetes
+
+      # Set proper permissions for OpenShift (non-root user)
+      # The base image already handles this, but we ensure compatibility
+      USER 50000
+  strategy:
+    type: Docker
+    dockerStrategy:
+      from:
+        kind: DockerImage
+        name: 'apache/airflow:3.0.2'
+  runPolicy: Serial

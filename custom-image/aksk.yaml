@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: minio-ak-sk
+  namespace: airflow-redhat
+data:
+  access-key: YOUR_ACCESS_KEY # ENCODED Access Key Id
+  secret-key: YOUR_SECRET_KEY # ENCODED Secret Access Key
+  
+type: Opaque

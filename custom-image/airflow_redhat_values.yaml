@@ -1,0 +1,214 @@
+# Custom Docker image deployment using OpenShift internal registry
+# Ensures all components use the custom image with CNCF Kubernetes provider
+airflow:
+  executor: CeleryExecutor
+  
+  # Default image configuration - using OpenShift internal registry
+  image:
+    repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+    tag: "3.0.2-custom"
+    pullPolicy: Always
+  
+  # Explicitly set image for each component to ensure override
+  scheduler:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+    replicas: 1
+  
+  webserver:
+    enabled: true
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+    replicas: 1
+    service:
+      type: ClusterIP
+      ports:
+        - name: airflow-ui
+          port: 8080
+    # Enable webserver for UI access
+    defaultUser:
+      enabled: true
+      role: Admin
+      username: admin
+      email: admin@example.com
+      firstName: admin
+      lastName: user
+      password: admin
+  
+  apiServer:
+    enabled: true
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+  
+  workers:
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+    replicas: 1
+    # Ensure workers mount the DAGs PVC
+    persistence:
+      enabled: true
+      existingClaim: airflow-dags
+  
+  dagProcessor:
+    enabled: true
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+  
+  triggerer:
+    enabled: true
+    image:
+      repository: image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift
+      tag: "3.0.2-custom"
+      pullPolicy: Always
+  
+  statsd:
+    enabled: true
+  
+  
+  config:
+    AIRFLOW__CORE__FERNET_KEY: "YOUR_FERNET_KEY"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
+    # Enable Kubernetes executor configuration
+    AIRFLOW__KUBERNETES__NAMESPACE: "airflow-redhat"
+    AIRFLOW__KUBERNETES__WORKER_CONTAINER_REPOSITORY: "image-registry.openshift-image-registry.svc:5000/airflow-redhat/airflow-openshift"
+    AIRFLOW__KUBERNETES__WORKER_CONTAINER_TAG: "3.0.2-custom"
+  
+  dags:
+    path: /opt/airflow/dags
+    persistence:
+      enabled: true
+      existingClaim: airflow-dags
+      storageClassName: efs-sc
+      accessMode: ReadWriteMany
+      size: 10Gi
+    gitSync:
+      enabled: false
+  
+  logs:
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClassName: gp3-csi
+
+# PostgreSQL configuration with init container to fix permissions
+postgresql:
+  primary:
+    containerSecurityContext:
+      enabled: false
+    podSecurityContext:
+      enabled: false
+    initContainers:
+      - name: volume-permissions
+        image: busybox:1.35
+        command: 
+          - /bin/sh
+          - -c
+          - |
+            chown -R 1001:1001 /bitnami/postgresql || true
+            chmod -R 755 /bitnami/postgresql || true
+        securityContext:
+          runAsUser: 0
+        volumeMounts:
+          - name: data
+            mountPath: /bitnami/postgresql
+    persistence:
+      enabled: true
+      size: 8Gi
+      storageClassName: gp3-csi
+
+# Service account configuration for Kubernetes operations
+serviceAccount:
+  create: true
+  name: "airflow-sa"
+  annotations: {}
+
+# RBAC configuration for Kubernetes pod operations
+rbac:
+  create: true
+  rules:
+    - apiGroups: [""]
+      resources: ["pods"]
+      verbs: ["create", "get", "list", "watch", "delete", "patch"]
+    - apiGroups: [""]
+      resources: ["pods/log"]
+      verbs: ["get", "list"]
+    - apiGroups: [""]
+      resources: ["pods/exec"]
+      verbs: ["create", "get", "list"]
+
+---
+# S3 DAG Sync CronJob - syncs DAGs from MinIO/S3 to EFS every 5 minutes
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: airflow-s3-dag-sync
+  namespace: airflow-redhat
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: airflow-sa
+          securityContext:
+            runAsUser: 50000
+            runAsGroup: 0
+            fsGroup: 0
+          containers:
+          - name: s3-sync
+            image: amazon/aws-cli:latest
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-ak-sk
+                  key: access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-ak-sk
+                  key: secret-key
+            command:
+            - sh
+            - -c
+            - |
+              echo "[$(date)] Starting S3 DAG sync..."
+              
+              # Sync DAGs from S3 to EFS
+              aws s3 sync \
+                s3://BUCKET_PATH/dags/ /opt/airflow/dags \
+                --endpoint-url YOUR_MINIO_URL \
+                --no-verify-ssl \
+                --delete
+              
+              # Fix permissions for OpenShift
+              chmod -R 775 /opt/airflow/dags
+              chown -R 50000:0 /opt/airflow/dags || true
+              
+              echo "[$(date)] Sync completed. DAGs in /opt/airflow/dags:"
+              ls -la /opt/airflow/dags/
+              
+              # Trigger DAG refresh in Airflow
+              echo "[$(date)] DAG sync completed successfully"
+            volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+          volumes:
+          - name: dags
+            persistentVolumeClaim:
+              claimName: airflow-dags
+          restartPolicy: OnFailure

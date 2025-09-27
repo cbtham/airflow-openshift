@@ -1,0 +1,14 @@
+# EFS storage for readwritemany
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: airflow-efs-dags
+  namespace: airflow
+spec:
+  storageClassName: efs-sc
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 10Gi

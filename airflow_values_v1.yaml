@@ -1,0 +1,80 @@
+# Side car at apiServer to sync DAGs from S3 to EFS
+# Manual sync required
+airflow:
+  executor: CeleryExecutor
+  config:
+    AIRFLOW__CORE__FERNET_KEY: "YOUR_FERNET_KEY"  # Replace with your actual
+    AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+    AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
+  dags:
+    path: /opt/airflow/dags
+    persistence:
+      enabled: true
+      size: 10Gi
+      storageClassName: efs-sc
+      accessMode: ReadWriteMany
+    gitSync:
+      enabled: false  # disable git-sync
+  logs:
+    persistence:
+      enabled: true
+  scheduler:
+    replicas: 1
+  webserver:
+    replicas: 1
+  workers:
+    replicas: 1
+apiServer:
+  extraContainers:
+    - name: s3-sync-sidecar
+      image: amazon/aws-cli:latest
+      env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-ak-sk
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-ak-sk
+              key: secret-key
+      command:
+        - sh
+        - -c
+        - |
+          # Initial sync
+          echo "[$(date)] Starting initial S3 DAGs sync in apiServer sidecar..."
+          mkdir -p /opt/airflow/dags
+          aws s3 sync \
+            s3://BUCKET_PATH/dags/ /opt/airflow/dags \
+            --endpoint-url YOUR_MINIO_URL \
+            --no-verify-ssl \
+            --delete
+          chmod -R 775 /opt/airflow/dags
+          
+          echo "[$(date)] Initial sync completed. Starting continuous sync..."
+          
+          # Continuous sync loop
+          while true; do
+            sleep 300 # sync every 5 minutes
+            echo "[$(date)] Syncing DAGs from S3..."
+            aws s3 sync \
+              s3://BUCKET_PATH/dags/ /opt/airflow/dags \
+              --endpoint-url YOUR_MINIO_URL \
+              --no-verify-ssl \
+              --delete
+            chmod -R 775 /opt/airflow/dags
+            echo "[$(date)] Sync completed. Files in /opt/airflow/dags:"
+            ls -la /opt/airflow/dags/
+          done
+      volumeMounts:
+        - name: dags
+          mountPath: /opt/airflow/dags
+  extraVolumes:
+    - name: dags
+      persistentVolumeClaim:
+        claimName: airflow-efs-dags
+  extraVolumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags

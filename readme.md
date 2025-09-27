@@ -1,16 +1,21 @@
-# Deploys latest Airflow on Openshift
+# Deploys latest Airflow on Openshift and Mount S3 Storage for DAGs
 
-## Add Helm Repo
+## Add Airflow Helm Repo
 ```shell
 helm repo add apache-airflow https://airflow.apache.org
 ```
 
 ## Deployment
-Run these before deploy,
 
+Create a new or point to your namespace.
 ```shell
 oc new project airflow
 oc project airflow
+```
+
+Run these before deploy, or use the [shell script](./airflow_pre.sh)
+
+```shell
 oc adm policy add-scc-to-user anyuid -z airflow-api-server
 oc adm policy add-scc-to-user anyuid -z airflow-create-user-job
 oc adm policy add-scc-to-user anyuid -z airflow-dag-processor
@@ -20,6 +25,7 @@ oc adm policy add-scc-to-user anyuid -z airflow-scheduler
 oc adm policy add-scc-to-user anyuid -z airflow-statsd
 oc adm policy add-scc-to-user anyuid -z airflow-triggerer
 oc adm policy add-scc-to-user anyuid -z airflow-worker
+oc adm policy add-scc-to-user anyuid -z airflow-webserver
 oc adm policy add-scc-to-user anyuid -z default
 ```
 Then run
@@ -28,41 +34,70 @@ Then run
 helm install airflow apache-airflow/airflow -f custom_values.yaml --namespace airflow
 ```
 
-### Post deploy
-Comment out this 3 line for statefulset, airflow-postgresql
-```yaml
-   # RunAsUser: 1001
-   # scccompProfile:
-   #     type: RuntimeDefault
-```
->Note: Without this it will not run.
+## Preload DAG on startup with S3 Object store
 
-## WIP Preload DAG on startup with S3 Object store
+### Option 1: Side car mount - s3-sync
+One time sync only. This is achieved via sidecar mounted on apiServer. Only apiServer will work for some reason even though the helm chart supports others.
 
-Option 1: Side car mount - s3-sync
-
-```yaml
-dags:
-  ## the airflow dags folder##
-  path: /opt/airflow/dags
-  ...
-  s3Sync:
-  ## if the git-sync sidecar container is enabled
-  enable: true
-  ## AWS CLI Docker Image
-  image:
-    repository: amazon/aws-cli
-    tag: latest
-    pullPolicy: Always
-    # Run as root user
-    uid: 65533
-    gid: 65533
-    # s3 bucket that contains DAG files 
-    bucketName: airflow
-    # s3 key path to DAG files
-    key: dags
-    # sync interval in second
-    interval: 1803ew98aq7yt
+```shell
+helm install airflow apache-airflow/airflow -f airflow_values_v1.yaml --namespace airflow
 ```
 
-Option 2: Pre-load in PV
+```yaml
+apiServer:
+  extraContainers:
+    - name: s3-sync-sidecar
+      image: amazon/aws-cli:latest
+      env:
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: minio-ak-sk
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: minio-ak-sk
+              key: secret-key
+      command:
+        - sh
+        - -c
+        - |
+          # Initial sync
+          echo "[$(date)] Start initial S3 DAGs sync in apiServer sidecar..."
+          mkdir -p /opt/airflow/dags
+          aws s3 sync \
+            s3://BUCKET_PATH/dags/ /opt/airflow/dags \
+            --endpoint-url YOUR_MINIO_URL \
+            --no-verify-ssl \
+            --delete
+          chmod -R 775 /opt/airflow/dags
+```
+
+### Option 2: CRON Job to Pre-load in Persistent Volume [Recommended]
+With this option, you can control the sync job on interval.
+
+Deploy the base airflow follow by cronjob.
+```shell
+helm install airflow apache-airflow/airflow -f airflow_values_v2-1.yaml --namespace airflow
+```
+and 
+```shell
+helm install airflow apache-airflow/airflow -f airflow_values_v2-2.yaml --namespace airflow
+```
+Post deployment, patch the scheduler, dag-processor and worker so they read from the PVC. This is a one time operation.
+
+Scheduler
+```shell
+oc patch deployment airflow-scheduler -n airflow --type=merge -p='{"spec":{"template":{"spec":{"containers":[{"name":"scheduler","volumeMounts":[{"name":"dags","mountPath":"/opt/airflow/dags"}]}],"volumes":[{"name":"dags","persistentVolumeClaim":{"claimName":"airflow-efs-dags"}}]}}}}'
+```
+
+Dag-processor
+```shell
+oc patch deployment airflow-dag-processor -n airflow --type=merge -p='{"spec":{"template":{"spec":{"containers":[{"name":"dag-processor","volumeMounts":[{"name":"dags","mountPath":"/opt/airflow/dags"}]}],"volumes":[{"name":"dags","persistentVolumeClaim":{"claimName":"airflow-efs-dags"}}]}}}}'
+```
+
+Worker
+```shell
+oc patch statefulset airflow-worker -n airflow --type=merge -p='{"spec":{"template":{"spec":{"containers":[{"name":"worker","volumeMounts":[{"name":"dags","mountPath":"/opt/airflow/dags"}]}],"volumes":[{"name":"dags","persistentVolumeClaim":{"claimName":"airflow-efs-dags"}}]}}}}'
+```

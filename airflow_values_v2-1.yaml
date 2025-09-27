@@ -1,19 +1,18 @@
-# Standard Airflow deployment with helm chart
+# Simpler but require CRONJOB to sync DAGs from S3 to EFS
+# AND manual sync at first time
 airflow:
   executor: CeleryExecutor
   config:
-    AIRFLOW__CORE__FERNET_KEY: "YOUR_FERNET_KEY"  # Replace with your actual
+    AIRFLOW__CORE__FERNET_KEY: "7T512UXSSmBOkpWimFHIVb8jK6lfmSAvx4mO6Arehnc="  # Replace with your actual
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
     AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
   dags:
     path: /opt/airflow/dags
     persistence:
       enabled: true
-      size: 10Gi
-      storageClassName: gp3-csi-immediate
-      accessMode: ReadWriteOnce
+      existingClaim: airflow-efs-dags  # Use the existing EFS PVC
     gitSync:
-      enabled: false  # disable git-sync
+      enabled: false
   logs:
     persistence:
       enabled: true
@@ -23,6 +22,12 @@ airflow:
     replicas: 1
   workers:
     replicas: 1
+    # Ensure workers mount the DAGs PVC
+    persistence:
+      enabled: true
+      existingClaim: airflow-efs-dags
+  dagProcessor:
+    enabled: true
 
 # PostgreSQL configuration to fix OpenShift security context issues
 postgresql:

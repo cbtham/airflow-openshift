@@ -1,0 +1,64 @@
+# Cron job to sync DAGs from S3 to EFS
+# s3-sync-sidecar.yaml is a side car at apiServer to sync DAGs from S3 to EFS
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: airflow-s3-dag-sync
+  namespace: airflow
+spec:
+  schedule: "*/5 * * * *"  # Run every 5 minutes
+  concurrencyPolicy: Replace
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: default
+          securityContext:
+            runAsUser: 50000
+            runAsGroup: 0
+            fsGroup: 0
+          containers:
+          - name: s3-sync
+            image: amazon/aws-cli:latest
+            env:
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: minio-ak-sk
+                  key: access-key
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: minio-ak-sk
+                  key: secret-key
+            command:
+            - sh
+            - -c
+            - |
+              echo "[$(date)] Starting S3 DAG sync..."
+              
+              # Sync DAGs from S3 to EFS
+              aws s3 sync \
+                s3://prasad-models/dags/ /opt/airflow/dags \
+                --endpoint-url https://nbg1.your-objectstorage.com \
+                --no-verify-ssl \
+                --delete
+              
+              # Fix permissions
+              chmod -R 775 /opt/airflow/dags
+              
+              echo "[$(date)] Sync completed. DAGs in /opt/airflow/dags:"
+              ls -la /opt/airflow/dags/
+              
+              # Trigger DAG refresh in Airflow
+              echo "[$(date)] Triggering DAG processor..."
+            volumeMounts:
+            - name: dags
+              mountPath: /opt/airflow/dags
+          volumes:
+          - name: dags
+            persistentVolumeClaim:
+              claimName: airflow-efs-dags
+          restartPolicy: OnFailure
