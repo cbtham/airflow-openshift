@@ -1,5 +1,9 @@
 # Deploys latest Airflow on Openshift and Mount S3 Storage for DAGs
 
+This guide deploys Airflow on OpenShift. Jump to the [Preload DAG on startup with S3 Object store]() section if you need to store your dags in S3 compatible object storage - ie. MinIO.
+
+![Airflow](img/airflow.png)
+
 ## Add Airflow Helm Repo
 ```shell
 helm repo add apache-airflow https://airflow.apache.org
