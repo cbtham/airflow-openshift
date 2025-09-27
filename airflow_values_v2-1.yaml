@@ -3,7 +3,7 @@
 airflow:
   executor: CeleryExecutor
   config:
-    AIRFLOW__CORE__FERNET_KEY: "7T512UXSSmBOkpWimFHIVb8jK6lfmSAvx4mO6Arehnc="  # Replace with your actual
+    AIRFLOW__CORE__FERNET_KEY: "YOUR_FERNET_KEY"  # Replace with your actual
     AIRFLOW__CORE__LOAD_EXAMPLES: "False"
     AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
   dags:

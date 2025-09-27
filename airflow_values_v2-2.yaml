@@ -41,8 +41,8 @@ spec:
               
               # Sync DAGs from S3 to EFS
               aws s3 sync \
-                s3://prasad-models/dags/ /opt/airflow/dags \
-                --endpoint-url https://nbg1.your-objectstorage.com \
+                s3://BUCKET_PATH/dags/ /opt/airflow/dags \
+                --endpoint-url YOUR_MINIO_URL \
                 --no-verify-ssl \
                 --delete
               
